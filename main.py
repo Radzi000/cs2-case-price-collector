@@ -4,6 +4,7 @@ import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
+import time
 
 def get_hashname(item, skin, wear, stat):
     """
@@ -32,7 +33,10 @@ def get_nameid(hashname):
     Pobiera `nameid` dla danego `hashname` poprzez analizę HTML strony Steam Community Market.
     """
     url = f"https://steamcommunity.com/market/listings/730/{hashname}"
-    html = requests.get(url).text
+    response = requests.get(url)
+    if response.status_code != 200:
+        raise ValueError(f"Nie można połączyć się z Steam Market dla {hashname}. Status kod: {response.status_code}")
+    html = response.text
     parts = html.split('Market_LoadOrderSpread( ')
     if len(parts) < 2:
         raise ValueError("Nie znaleziono Market_LoadOrderSpread w HTML. Przedmiot może nie istnieć.")
@@ -58,8 +62,8 @@ def item_data(hashname):
         out["Buy"] = int(highest_buy) / 100.0
         out["Sell"] = int(lowest_sell) / 100.0
     except (IndexError, ValueError):
-        out["Buy"] = None
-        out["Sell"] = None
+        out["Buy"] = "N/A"
+        out["Sell"] = "N/A"
 
     try:
         # Pobierz wolumen z priceoverview
@@ -68,7 +72,7 @@ def item_data(hashname):
         volume_str = (price_data.split('"volume":"')[1]).split('"')[0]
         out["Volume"] = int(volume_str.replace(",", ""))
     except (IndexError, ValueError):
-        out["Volume"] = None
+        out["Volume"] = "N/A"
     
     return out
 
@@ -171,6 +175,10 @@ def main():
                 all_data[f"{itm['item']} Sell"] = "Error"
                 all_data[f"{itm['item']} Volume"] = "Error"
                 print(f"Error fetching data for {itm['item']}: {e}")
+                continue  # Kontynuuj z kolejnymi przedmiotami
+
+            # Dodaj opóźnienie, aby uniknąć zbyt szybkiego wysyłania zapytań
+            time.sleep(1)
 
         # Append data to Google Sheets (Arkusz2)
         append_to_google_sheets(all_data, worksheet_name='Arkusz2')
