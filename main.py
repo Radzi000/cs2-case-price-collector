@@ -5,6 +5,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import json
 import time
+import re
 
 def get_hashname(item, skin, wear, stat):
     """
@@ -25,7 +26,7 @@ def get_hashname(item, skin, wear, stat):
     wear_str = float_map.get(wear, "")
     if stat == 1:
         item = "StatTrak™%20" + item
-    hashname = item + "%20%7C%20" + skin + wear_str
+    hashname = f"{item}%20%7C%20{skin}{wear_str}"
     return hashname
 
 def get_nameid(hashname):
@@ -37,11 +38,11 @@ def get_nameid(hashname):
     if response.status_code != 200:
         raise ValueError(f"Nie można połączyć się z Steam Market dla {hashname}. Status kod: {response.status_code}")
     html = response.text
-    parts = html.split('Market_LoadOrderSpread( ')
-    if len(parts) < 2:
+    match = re.search(r'Market_LoadOrderSpread\((\d+),', html)
+    if not match:
         raise ValueError("Nie znaleziono Market_LoadOrderSpread w HTML. Przedmiot może nie istnieć.")
-    nameid_part = parts[1].split(' ')[0]
-    return int(nameid_part)
+    nameid = match.group(1)
+    return int(nameid)
 
 def item_data(hashname):
     """
@@ -52,28 +53,38 @@ def item_data(hashname):
 
     # Pobierz dane zamówień (najwyższa cena kupna, najniższa cena sprzedaży)
     order_url = f"https://steamcommunity.com/market/itemordershistogram?country=US&currency=1&language=english&two_factor=0&item_nameid={nameid}"
-    order_data = requests.get(order_url).text
+    order_response = requests.get(order_url)
+    if order_response.status_code != 200:
+        raise ValueError(f"Nie można pobrać danych zamówień dla {hashname}. Status kod: {order_response.status_code}")
+    order_data = order_response.json()
 
     try:
-        # Parsowanie najwyższej ceny kupna
-        highest_buy = (order_data.split('"highest_buy_order":"')[1]).split('"')[0]
-        # Parsowanie najniższej ceny sprzedaży
-        lowest_sell = (order_data.split('"lowest_sell_order":"')[1]).split('"')[0]
-        out["Buy"] = int(highest_buy) / 100.0
-        out["Sell"] = int(lowest_sell) / 100.0
-    except (IndexError, ValueError):
-        out["Buy"] = "N/A"
-        out["Sell"] = "N/A"
+        highest_buy = float(order_data['highest_buy_order']) / 100.0
+    except (KeyError, ValueError, TypeError):
+        highest_buy = "N/A"
 
     try:
-        # Pobierz wolumen z priceoverview
-        price_url = f"https://steamcommunity.com/market/priceoverview/?appid=730&currency=1&market_hash_name={hashname}"
-        price_data = requests.get(price_url).text
-        volume_str = (price_data.split('"volume":"')[1]).split('"')[0]
-        out["Volume"] = int(volume_str.replace(",", ""))
-    except (IndexError, ValueError):
-        out["Volume"] = "N/A"
-    
+        lowest_sell = float(order_data['lowest_sell_order']) / 100.0
+    except (KeyError, ValueError, TypeError):
+        lowest_sell = "N/A"
+
+    out["Buy"] = highest_buy
+    out["Sell"] = lowest_sell
+
+    # Pobierz wolumen z priceoverview
+    price_url = f"https://steamcommunity.com/market/priceoverview/?appid=730&currency=1&market_hash_name={hashname}"
+    price_response = requests.get(price_url)
+    if price_response.status_code != 200:
+        raise ValueError(f"Nie można pobrać danych cenowych dla {hashname}. Status kod: {price_response.status_code}")
+    price_data = price_response.json()
+
+    try:
+        volume = int(price_data['volume'].replace(",", ""))
+    except (KeyError, ValueError, TypeError):
+        volume = "N/A"
+
+    out["Volume"] = volume
+
     return out
 
 def append_to_google_sheets(data, sheet_name='CS2 Case Data', worksheet_name='Arkusz2'):
@@ -167,9 +178,9 @@ def main():
             try:
                 current_data = item_data(hash_name)
                 # Tworzymy unikalne klucze dla każdego przedmiotu
-                all_data[f"{itm['item']} Buy"] = current_data["Buy"] if current_data["Buy"] is not None else "N/A"
-                all_data[f"{itm['item']} Sell"] = current_data["Sell"] if current_data["Sell"] is not None else "N/A"
-                all_data[f"{itm['item']} Volume"] = current_data["Volume"] if current_data["Volume"] is not None else "N/A"
+                all_data[f"{itm['item']} Buy"] = current_data["Buy"] if current_data["Buy"] != "N/A" else "N/A"
+                all_data[f"{itm['item']} Sell"] = current_data["Sell"] if current_data["Sell"] != "N/A" else "N/A"
+                all_data[f"{itm['item']} Volume"] = current_data["Volume"] if current_data["Volume"] != "N/A" else "N/A"
             except Exception as e:
                 all_data[f"{itm['item']} Buy"] = "Error"
                 all_data[f"{itm['item']} Sell"] = "Error"
