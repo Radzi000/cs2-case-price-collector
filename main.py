@@ -56,36 +56,23 @@ def item_data(hashname):
     
     return out
 
-def append_to_google_sheets(data, spreadsheet_name, worksheet_name):
-    """
-    Zapisuje wiersz do konkretnego 'worksheet_name' wewnątrz arkusza 'spreadsheet_name'.
-    Jeśli dany worksheet nie istnieje, tworzy go automatycznie.
-    """
-    # Definiujemy scope
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/drive"
-    ]
+def append_to_google_sheets(data, sheet_name='CS2 Case Data'):
+    # Define the scope
+    scope = ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/spreadsheets",
+             "https://www.googleapis.com/auth/drive.file",
+             "https://www.googleapis.com/auth/drive"]
 
-    # Autentykacja z wykorzystaniem service account
+    # Authenticate using the service account
     credentials_json = os.getenv('GOOGLE_CREDENTIALS_JSON')
     creds_dict = json.loads(credentials_json)
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
 
-    # Otwieramy spreadsheet
-    spreadsheet = client.open(spreadsheet_name)
-    
-    # Sprawdzamy, czy worksheet o danej nazwie istnieje
-    try:
-        sheet = spreadsheet.worksheet(worksheet_name)
-    except gspread.exceptions.WorksheetNotFound:
-        # Jeśli nie istnieje, tworzymy
-        sheet = spreadsheet.add_worksheet(title=worksheet_name, rows=1000, cols=10)
+    # Open the spreadsheet
+    sheet = client.open(sheet_name).sheet1
 
-    # Przygotowujemy wiersz do dodania
+    # Prepare the row to append
     row = [
         data['Time'].strftime("%Y-%m-%d %H:%M:%S"),
         data['Buy'],
@@ -93,60 +80,28 @@ def append_to_google_sheets(data, spreadsheet_name, worksheet_name):
         data['Volume']
     ]
 
-    # Dodajemy wiersz
+    # Append the row
     sheet.append_row(row)
 
 def main():
-    # Lista skrzynek, dla których chcesz pobrać dane
-    cases = [
-        "Prisma Case",
-        "Snakebite Case",
-        "Prisma 2 Case",
-        "Clutch Case",
-        "Dreams & Nightmares Case",
-        "Recoil Case",
-        "Fracture Case",
-        "Revolution Case",
-        "Anubis Collection Package",
-        "Danger Zone Case",
-        "Horizon Case",
-        "CS20 Case",
-        "Spectrum 2 Case",
-        "Spectrum Case",
-        "Falchion Case",
-        "Gamma Case",
-        "Gamma 2 Case",
-        "Chroma 3 Case",
-        "Glove Case"
-    ]
+    try:
+        # Parameters (modify as needed)
+        item = "Prisma Case"
+        skin = ""
+        wear = 0
+        stat = 0
 
-    # Nazwa głównego arkusza w Google (Spreadsheet)
-    spreadsheet_name = "CS2 Case Data"
+        hash_name = get_hashname(item, skin, wear, stat)
+        current_data = item_data(hash_name)
+        current_data["Time"] = datetime.utcnow()
 
-    # Pobieramy czas "na teraz"
-    current_time = datetime.utcnow()
+        # Append data to Google Sheets
+        append_to_google_sheets(current_data)
 
-    # Dla każdej skrzynki w liście zbieramy dane i zapisujemy do osobnej zakładki
-    for item_name in cases:
-        try:
-            # Generujemy hash_name (skin, wear, stat ustawione na 0/"" - możesz dopasować)
-            hash_name = get_hashname(item_name, "", 0, 0)
-            data = item_data(hash_name)
-
-            # Dokładamy do słownika datę/czas — ten sam dla każdej skrzynki
-            data["Time"] = current_time
-
-            # Zapis do worksheet o nazwie np. "Prisma Case", "Snakebite Case" itd.
-            append_to_google_sheets(data, spreadsheet_name, item_name)
-
-            print(f"Zaktualizowano dane dla: {item_name}")
-
-        except Exception as e:
-            print(f"Wystąpił błąd dla {item_name}: {e}")
-            # Możesz tutaj zdecydować, czy przerywać pętlę, czy kontynuować
-            # raise e
-
-    print("Wszystkie dostępne dane zaktualizowane pomyślnie.")
+        print('Data collected and appended successfully.')
+    except Exception as e:
+        print(f'An error occurred: {e}')
+        raise e
 
 if __name__ == "__main__":
     main()
