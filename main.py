@@ -150,7 +150,6 @@ def main():
 
         except Exception as e:
             print(f"Wystąpił błąd dla {item_name}: {e}")
-            # Możesz tutaj zdecydować, czy przerywać pętlę, czy kontynuować
             # raise e
 
     print("Wszystkie dostępne dane zaktualizowane pomyślnie.")
